@@ -60,16 +60,17 @@
       files = files || this._getFiles();
       if (!files || !files.length) return;
 
-      var errors = this._validateOptions();
-      if (!errors) errors = this._validateFiles(files);
-
-      if (errors) {
-        this._triggerEvent("lu:errors", errors);
-      } else {
-        this._triggerEvent("lu:start", files);
-        this.xhrs = [];
-        this._startUpload(files);
-      }
+      return Promise.all([this._validateOptions(), this._validateFiles(files)])
+      .then(function (errors) {
+        console.log("hdshsd", errors)
+        if (errors) {
+          this._triggerEvent("lu:errors", errors);
+        } else {
+          this._triggerEvent("lu:start", files);
+          this.xhrs = [];
+          this._startUpload(files);
+        }
+      });
     },
 
     _startUpload: function (files) {
@@ -154,33 +155,45 @@
     },
 
     _validateFiles: function (files) {
-      var allErrors = [];
+      var promises = []
 
+      for (var i = 0; i < files.length; i++) {
+        promises.push(this._validateFile(files[i]));
+      }
+
+      return Promise.all(promises)
+      .then(function (fileErrors) {
+        var allErrors = fileErrors.filter(function (file) {
+          return file.errors.length;
+        })
+
+        return (allErrors.length) ? allErrors : null;
+      });
+    },
+
+    _validateFile: function (file) {
       var validatorMap = {
         "allowedFileTypes": this._allowedFileTypeValidator,
         "maxSize": this._maxSizeValidator
       };
 
-      for (var i = 0; i < files.length; i++) {
-        var fileErrors = Object.keys(this.options.rules).reduce(function (acc, key) {
-          var rule = this.options.rules[key];
+      var promises = Object.keys(this.options.rules).reduce(function (acc, key) {
+        var rule = this.options.rules[key];
 
-          if (rule && validatorMap[key]) {
-            var errors = validatorMap[key](rule, files[i]);
-            if (errors) acc.push(errors);
-          }
-          return acc;
-        }.bind(this), []);
-
-        if (fileErrors.length) {
-          allErrors.push({
-            name: files[i].name,
-            errors: fileErrors
-          });
+        if (rule && validatorMap[key]) {
+          var errors = validatorMap[key](rule, file);
+          if (errors) acc.push(errors);
         }
-      }
+        return acc;
+      }.bind(this), []);
 
-      return (allErrors.length) ? allErrors : null;
+      return Promise.all(promises)
+      .then(function (fileErrors) {
+        return {
+          name: file.name,
+          errors: fileErrors
+        }
+      });
     },
 
     _getFormDataObject: function () {
